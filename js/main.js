@@ -41,28 +41,31 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* ----------------------------------------------------------
-     2. ACTIVE NAV LINK ON SCROLL (Intersection Observer)
+     2. ACTIVE NAV LINK ON SCROLL
+     Uses scroll position (not per-entry observer callbacks) so
+     only one section is active when several overlap in viewport.
   ---------------------------------------------------------- */
-  const sections  = document.querySelectorAll('section[id], main > section');
-  const navLinks  = document.querySelectorAll('.nav-link[href^="#"]');
+  const sections = document.querySelectorAll('main > section[id]');
+  const navLinks = document.querySelectorAll('.nav-link[href^="#"]');
+  const HEADER_HEIGHT = 64;
 
-  const observerOptions = {
-    root: null,
-    rootMargin: `-${64}px 0px -55% 0px`,
-    threshold: 0,
-  };
+  function updateActiveNavLink() {
+    const scrollPosition = window.scrollY + HEADER_HEIGHT + 1;
 
-  const sectionObserver = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        navLinks.forEach(link => link.classList.remove('active'));
-        const activeLink = document.querySelector(`.nav-link[href="#${entry.target.id}"]`);
-        if (activeLink) activeLink.classList.add('active');
+    let activeSection = sections[0];
+    sections.forEach(section => {
+      if (section.offsetTop <= scrollPosition) {
+        activeSection = section;
       }
     });
-  }, observerOptions);
 
-  sections.forEach(section => sectionObserver.observe(section));
+    navLinks.forEach(link => {
+      link.classList.toggle('active', link.getAttribute('href') === `#${activeSection.id}`);
+    });
+  }
+
+  updateActiveNavLink();
+  window.addEventListener('scroll', updateActiveNavLink, { passive: true });
 
   /* ----------------------------------------------------------
      3. HEADER SHADOW ON SCROLL
@@ -80,42 +83,12 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('scroll', scrollHandler, { passive: true });
 
   /* ----------------------------------------------------------
-     4. CATEGORY TAG PILLS – active toggle + filter feedback
+     4 & 5. CATEGORY PILLS + SEARCH – unified card filtering
   ---------------------------------------------------------- */
-  const tagPills = document.querySelectorAll('.tag-pill');
-
-  tagPills.forEach(pill => {
-    pill.addEventListener('click', () => {
-      const wasActive = pill.classList.contains('active');
-
-      // Deactivate all
-      tagPills.forEach(p => p.classList.remove('active'));
-
-      // Toggle clicked pill
-      if (!wasActive) {
-        pill.classList.add('active');
-        const category = pill.dataset.category;
-        filterServicesByCategory(category);
-      } else {
-        filterServicesByCategory(null);
-      }
-    });
-  });
-
-  function filterServicesByCategory(category) {
-    const cards = document.querySelectorAll('.service-card');
-    cards.forEach(card => {
-      if (!category) {
-        card.style.opacity = '1';
-        card.style.transform = '';
-        return;
-      }
-      const title = card.querySelector('.card-title')?.textContent.toLowerCase() ?? '';
-      const matches = matchesCategory(title, category);
-      card.style.opacity = matches ? '1' : '0.38';
-      card.style.transform = matches ? '' : 'scale(0.97)';
-    });
-  }
+  const tagPills    = document.querySelectorAll('.tag-pill');
+  const searchInput = document.getElementById('searchInput');
+  const searchBtn   = document.querySelector('.btn--search');
+  let activeCategory = null;
 
   function matchesCategory(title, category) {
     const map = {
@@ -128,33 +101,64 @@ document.addEventListener('DOMContentLoaded', () => {
     return keywords.some(kw => title.includes(kw));
   }
 
-  /* ----------------------------------------------------------
-     5. SEARCH – live highlight + focus
-  ---------------------------------------------------------- */
-  const searchInput = document.getElementById('searchInput');
-  const searchBtn   = document.querySelector('.btn--search');
+  function cardMatchesCategory(card, category) {
+    if (!category) return true;
+    const title = card.querySelector('.card-title')?.textContent.toLowerCase() ?? '';
+    return matchesCategory(title, category);
+  }
 
-  function runSearch() {
+  function cardMatchesSearch(card, query) {
+    if (!query) return true;
+    return card.textContent.toLowerCase().includes(query);
+  }
+
+  function applyCardFilters() {
     const query = searchInput.value.trim().toLowerCase();
-    const allCards = document.querySelectorAll('.service-card, .pro-card');
 
-    if (!query) {
-      allCards.forEach(card => {
-        card.style.opacity = '1';
-        card.style.transform = '';
-      });
-      return;
-    }
-
-    allCards.forEach(card => {
-      const text = card.textContent.toLowerCase();
-      const matches = text.includes(query);
-      card.style.opacity  = matches ? '1' : '0.3';
-      card.style.transform = matches ? '' : 'scale(0.97)';
+    document.querySelectorAll('.service-card').forEach(card => {
+      const visible = cardMatchesCategory(card, activeCategory) && cardMatchesSearch(card, query);
+      card.style.opacity = visible ? '1' : (query ? '0.3' : '0.38');
+      card.style.transform = visible ? '' : 'scale(0.97)';
     });
 
-    // Scroll to first match
-    const firstMatch = Array.from(allCards).find(c => c.textContent.toLowerCase().includes(query));
+    document.querySelectorAll('.pro-card').forEach(card => {
+      const visible = cardMatchesSearch(card, query);
+      card.style.opacity = visible ? '1' : '0.3';
+      card.style.transform = visible ? '' : 'scale(0.97)';
+    });
+  }
+
+  tagPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      const wasActive = pill.classList.contains('active');
+
+      tagPills.forEach(p => p.classList.remove('active'));
+
+      if (!wasActive) {
+        pill.classList.add('active');
+        activeCategory = pill.dataset.category;
+      } else {
+        activeCategory = null;
+      }
+
+      applyCardFilters();
+    });
+  });
+
+  function runSearch() {
+    applyCardFilters();
+
+    const query = searchInput.value.trim().toLowerCase();
+    if (!query) return;
+
+    const allCards = document.querySelectorAll('.service-card, .pro-card');
+    const firstMatch = Array.from(allCards).find(card => {
+      const categoryOk = card.classList.contains('service-card')
+        ? cardMatchesCategory(card, activeCategory)
+        : true;
+      return categoryOk && cardMatchesSearch(card, query);
+    });
+
     if (firstMatch) {
       firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
@@ -166,9 +170,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') runSearch();
   });
 
-  // Clear filter when input is emptied
   searchInput?.addEventListener('input', () => {
-    if (searchInput.value === '') runSearch();
+    if (searchInput.value === '') applyCardFilters();
   });
 
   /* ----------------------------------------------------------
