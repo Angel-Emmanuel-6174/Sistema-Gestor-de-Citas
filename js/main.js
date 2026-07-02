@@ -4,6 +4,8 @@
 
 document.addEventListener('DOMContentLoaded', () => {
 
+  // variable para el modal
+
   /* ----------------------------------------------------------
      1. HAMBURGER / MOBILE NAV
   ---------------------------------------------------------- */
